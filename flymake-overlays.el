@@ -43,7 +43,7 @@
 (defvar-local flymake-overlays--overlays nil
   "List of diagnostic overlays.")
 
-(defcustom flymake-overlays-fontify-text-fn #'flymake-overlays--fontify-text
+(defcustom flymake-overlays-fontify-text-function #'flymake-overlays--fontify-text
   "Function to fontify diagnostic text.
 Accepts one variable, the text to fontify, and returns the fontified
 text."
@@ -60,7 +60,7 @@ text."
 
 (defun flymake-overlays--format-diagnostic (text)
   "Format diagnostic TEXT for display."
-  (setq text (funcall flymake-overlays-fontify-text-fn text))
+  (setq text (funcall flymake-overlays-fontify-text-function text))
   (font-lock-append-text-property 0 (length text)
                                   'face 'flymake-overlays-face
                                   text)
