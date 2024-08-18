@@ -13,11 +13,13 @@ Download this repository, install using =M-x package-install-file= (or package-v
 (use-package flymake-overlays
   :after flymake
   :bind (:map flymake-mode-map
-              ("C-c t" . flymake-overlays-toggle-at-point))
+              ("C-c t" . flymake-overlays-smart-toggle))
   :hook (flymake-mode . flymake-overlays-mode))
 #+end_src
 
 Customize the bindings as you like.  The =:hook= line ensures that =flymake-overlays-mode= is activated whenever =flymake-mode= is.
+
+The =flymake-overlays-smart-toggle= function toggles the overlay at point if there is one, otherwise it toggles all overlays in the buffer.
 
 * Usage
 Once configured, =flymake-overlays-mode= will automatically create overlays for Flymake diagnostics.  To interact with these overlays:

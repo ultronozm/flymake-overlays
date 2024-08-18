@@ -121,6 +121,27 @@ If OV is provided, update it instead of creating a new one."
                t))
            (overlays-at (point))))
 
+(defun flymake-overlays-smart-toggle ()
+  "Smart toggle for flymake overlays.
+If point is within an overlay, toggle that overlay.  Otherwise, toggle
+visibility of all overlays in the buffer."
+  (interactive)
+  (if-let ((ov (seq-find (lambda (o) (overlay-get o 'flymake-overlays-text))
+                         (overlays-at (point)))))
+      ;; Toggle the overlay at point
+      (if (overlay-get ov 'after-string)
+          (overlay-put ov 'after-string nil)
+        (overlay-put ov 'after-string (overlay-get ov 'flymake-overlays-text)))
+    ;; Toggle all overlays
+    (if (seq-some (lambda (o) (overlay-get o 'after-string))
+                  flymake-overlays--overlays)
+        ;; If any overlay is visible, hide all
+        (dolist (o flymake-overlays--overlays)
+          (overlay-put o 'after-string nil))
+      ;; Otherwise, show all
+      (dolist (o flymake-overlays--overlays)
+        (overlay-put o 'after-string (overlay-get o 'flymake-overlays-text))))))
+
 (defun flymake-overlays--clear-overlays ()
   "Clear all diagnostic overlays."
   (mapc #'delete-overlay flymake-overlays--overlays)
