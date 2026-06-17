@@ -43,6 +43,12 @@
 (defvar-local flymake-overlays--overlays nil
   "List of diagnostic overlays.")
 
+(defvar flymake-overlays--active-buffer-count 0
+  "Number of buffers currently using `flymake-overlays-mode'.")
+
+;; Silence byte-compiler: defined by `define-minor-mode' below.
+(defvar flymake-overlays-mode)
+
 (defcustom flymake-overlays-fontify-text-function #'flymake-overlays--fontify-text
   "Function to fontify diagnostic text.
 Accepts one variable, the text to fontify, and returns the fontified
@@ -66,55 +72,66 @@ text."
                                   text)
   (concat text "\n"))
 
+(defun flymake-overlays--rendered-text (ov)
+  "Return rendered text for overlay OV, recomputing only when needed."
+  (let ((raw (overlay-get ov 'flymake-overlays-raw-text))
+        (cached-raw (overlay-get ov 'flymake-overlays-cached-raw-text))
+        (cached-rendered (overlay-get ov 'flymake-overlays-rendered-text)))
+    (if (and cached-rendered (equal raw cached-raw))
+        cached-rendered
+      (let ((rendered (flymake-overlays--format-diagnostic raw)))
+        (overlay-put ov 'flymake-overlays-cached-raw-text raw)
+        (overlay-put ov 'flymake-overlays-rendered-text rendered)
+        rendered))))
+
 (defun flymake-overlays--create-or-update-overlay (beg end text &optional ov)
   "Create or update overlay from BEG to END with TEXT.
 If OV is provided, update it instead of creating a new one."
   (let ((overlay (or ov (make-overlay beg end nil t nil))))
-    (overlay-put overlay 'flymake-overlays-text
-                 (flymake-overlays--format-diagnostic text))
+    (overlay-put overlay 'flymake-overlays-raw-text text)
     (if ov
         (when (overlay-get ov 'after-string)
           (overlay-put overlay 'after-string
-                       (overlay-get overlay
-                                    'flymake-overlays-text)))
+                       (flymake-overlays--rendered-text overlay)))
       (overlay-put overlay 'after-string nil)  ; Start invisible
       (push overlay flymake-overlays--overlays))
     overlay))
 
 (defun flymake-overlays--handle-report (&rest _)
   "Update our overlays after Flymake reports diagnostics."
-  (let ((flymake-diagnostics (flymake-diagnostics)))
-    ;; Remove overlays that don't match current Flymake diagnostics
-    (setq flymake-overlays--overlays
-          (seq-remove
-           (lambda (ov)
-             (unless (seq-find (lambda (diag)
-                                 (= (overlay-start ov)
-                                    (flymake-diagnostic-beg diag)))
-                               flymake-diagnostics)
-               (delete-overlay ov)
-               t))
-           flymake-overlays--overlays))
+  (when flymake-overlays-mode
+    (let ((flymake-diagnostics (flymake-diagnostics)))
+      ;; Remove overlays that don't match current Flymake diagnostics
+      (setq flymake-overlays--overlays
+            (seq-remove
+             (lambda (ov)
+               (unless (seq-find (lambda (diag)
+                                   (= (overlay-start ov)
+                                      (flymake-diagnostic-beg diag)))
+                                 flymake-diagnostics)
+                 (delete-overlay ov)
+                 t))
+             flymake-overlays--overlays))
 
-    ;; Update existing overlays, create new ones
-    (dolist (diag flymake-diagnostics)
-      (let* ((beg (flymake-diagnostic-beg diag))
-             (end (save-excursion
-                    (goto-char (flymake-diagnostic-end diag))
-                    (line-beginning-position 2)))
-             (text (flymake-diagnostic-text diag))
-             (existing-ov (cl-find-if (lambda (ov)
-                                        (= (overlay-start ov) beg))
-                                      flymake-overlays--overlays)))
-        (if existing-ov
-            (flymake-overlays--create-or-update-overlay beg end text existing-ov)
-          (flymake-overlays--create-or-update-overlay beg end text))))))
+      ;; Update existing overlays, create new ones
+      (dolist (diag flymake-diagnostics)
+        (let* ((beg (flymake-diagnostic-beg diag))
+               (end (save-excursion
+                      (goto-char (flymake-diagnostic-end diag))
+                      (line-beginning-position 2)))
+               (text (flymake-diagnostic-text diag))
+               (existing-ov (cl-find-if (lambda (ov)
+                                          (= (overlay-start ov) beg))
+                                        flymake-overlays--overlays)))
+          (if existing-ov
+              (flymake-overlays--create-or-update-overlay beg end text existing-ov)
+            (flymake-overlays--create-or-update-overlay beg end text)))))))
 
 (defun flymake-overlays-toggle-at-point ()
   "Toggle the diagnostic overlay at point."
   (interactive)
   (cl-some (lambda (ov)
-             (when-let (text (overlay-get ov 'flymake-overlays-text))
+             (when-let ((text (flymake-overlays--rendered-text ov)))
                (if (overlay-get ov 'after-string)
                    (overlay-put ov 'after-string nil)
                  (overlay-put ov 'after-string text))
@@ -126,12 +143,12 @@ If OV is provided, update it instead of creating a new one."
 If point is within an overlay, toggle that overlay.  Otherwise, toggle
 visibility of all overlays in the buffer."
   (interactive)
-  (if-let ((ov (seq-find (lambda (o) (overlay-get o 'flymake-overlays-text))
+  (if-let ((ov (seq-find (lambda (o) (overlay-get o 'flymake-overlays-raw-text))
                          (overlays-at (point)))))
       ;; Toggle the overlay at point
       (if (overlay-get ov 'after-string)
           (overlay-put ov 'after-string nil)
-        (overlay-put ov 'after-string (overlay-get ov 'flymake-overlays-text)))
+        (overlay-put ov 'after-string (flymake-overlays--rendered-text ov)))
     ;; Toggle all overlays
     (if (seq-some (lambda (o) (overlay-get o 'after-string))
                   flymake-overlays--overlays)
@@ -140,7 +157,7 @@ visibility of all overlays in the buffer."
           (overlay-put o 'after-string nil))
       ;; Otherwise, show all
       (dolist (o flymake-overlays--overlays)
-        (overlay-put o 'after-string (overlay-get o 'flymake-overlays-text))))))
+        (overlay-put o 'after-string (flymake-overlays--rendered-text o))))))
 
 (defun flymake-overlays--clear-overlays ()
   "Clear all diagnostic overlays."
@@ -154,10 +171,16 @@ visibility of all overlays in the buffer."
   :global nil
   (if flymake-overlays-mode
       (progn
+        (setq flymake-overlays--active-buffer-count
+              (1+ flymake-overlays--active-buffer-count))
         (setq flymake-overlays--overlays nil)
-        (advice-add 'flymake--handle-report :after #'flymake-overlays--handle-report)
+        (when (= flymake-overlays--active-buffer-count 1)
+          (advice-add 'flymake--handle-report :after #'flymake-overlays--handle-report))
         (flymake-overlays--handle-report))
-    (advice-remove 'flymake--handle-report #'flymake-overlays--handle-report)
+    (setq flymake-overlays--active-buffer-count
+          (max 0 (1- flymake-overlays--active-buffer-count)))
+    (when (= flymake-overlays--active-buffer-count 0)
+      (advice-remove 'flymake--handle-report #'flymake-overlays--handle-report))
     (flymake-overlays--clear-overlays)))
 
 (provide 'flymake-overlays)
